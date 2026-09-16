@@ -1,3 +1,4 @@
 *.csv
 *.parquet
 *.xlsx
+.Rproj.user
