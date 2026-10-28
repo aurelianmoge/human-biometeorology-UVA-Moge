@@ -1,0 +1,13 @@
+# Local inputs and generated scientific artifacts are delivered separately.
+/1. Data/raw/
+/1. Data/derived/
+/1. Data/reference/
+/1. Data/metadata/report_text/
+/3. Outputs/
+/4. Reports/
+.RData
+.Rhistory
+.Rproj.user/
+__pycache__/
+*.pyc
+.DS_Store
