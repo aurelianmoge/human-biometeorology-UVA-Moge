@@ -1,56 +1,62 @@
-# Virginia human biometeorology — clean project
+# Temperature, DTR and mortality inequalities in Virginia, 2005–2020
 
-Start with **[the general report](4.%20Reports/GENERAL_REPORT.html)** ([PDF](4.%20Reports/GENERAL_REPORT.pdf)) or **[the visual results browser](3.%20Outputs/index.html)**. The four thematic reports explain the data, descriptions, models and original research. A [mathematical appendix](4.%20Reports/MATHEMATICAL_APPENDIX.html) develops the intuition, equations and assumptions. The [historical evidence review](4.%20Reports/HISTORICAL_EVIDENCE_REVIEW.html) distinguishes reproduced results from preserved specialized branches and later corrections.
+Reproducible analysis pipeline for the Human Biometeorology project (UVA, 2026–2027).
+Question: **do sex, race and age groups differ in how cold, heat and the diurnal temperature
+range (DTR) affect their daily mortality, and do group-specific minimum-mortality temperatures
+(Cao et al. 2026) change who is counted as "at risk"?**
 
-## Four folders
+Data: about 983,000 resident deaths from the Virginia Department of Health, in 12 climate regions,
+each represented by one weather station (Davis et al. 2023). Methods: two-stage distributed lag
+non-linear models, the published statewide design of DeGuzman et al. (2026), time-stratified
+conditional Poisson regression, attributable burden, and the Cao et al. (2026) days-at-risk comparison.
+See [`4. Reports/DATA_AND_METHODS.md`](4.%20Reports/DATA_AND_METHODS.md).
 
-| Folder | Contents |
-| --- | --- |
-| `1. Data` | Immutable raw copies, derived panels, corrected Census cells, source manifests, variable/crosswalk dictionaries and frozen numerical references |
-| `2. Scripts` | Numbered, commented English scripts, shared statistical functions and a single runner |
-| `3. Outputs` | Four matching themes, each with CSV, PNG, paginated table PNGs, model objects, logs and clearly labeled historical evidence |
-| `4. Reports` | Four thematic reports, general report, mathematical appendix, historical evidence review; Markdown, HTML and PDF |
+## Layout
 
-The four themes are data description, descriptive statistics, modelization and original research. New analytical results are immediately inside each theme. Earlier reports/figures/tables retain package names under `historical_evidence`; use the visual browser's search to find them. Source packages stay together so relative report/image links remain useful. Some inherited documents reference old model files or scripts outside the snapshots; their links are historical, not a claim that this clean runner executes them.
+| Folder | Content | In git |
+|---|---|---|
+| `1. Data/raw/` | 12 regional workbooks (VDH deaths + station weather), Census county estimates, GHCN-Daily donor stations | no (restricted / large) |
+| `1. Data/reference/` | frozen reference panel, station and county metadata (Davis et al. 2025 roster) | no |
+| `1. Data/derived/` | everything rebuilt by stage 01 | no |
+| `2. Scripts/` | the pipeline (below) | **yes** |
+| `3. Outputs/` | tables (`.csv`), figures (`.png`), fitted models (`.rds`), logs | no (rebuilt) |
+| `4. Reports/` | Data & Methods document | yes |
 
-## Reproduce
+## Running
 
-From any directory:
+From this folder (`Final folder`), with R ≥ 4.3 (`data.table`, `dlnm`, `mixmeta`, `fixest`, `ggplot2`, `dplyr`, `tidyr`) and Python 3 (standard library only):
 
 ```sh
-python3 '/absolute/path/to/Clean folder/2. Scripts/run.py'
+Rscript "2. Scripts/run_all.R"                    # about 25 min on 8 cores
+Rscript "2. Scripts/run_all.R" --with-simulation  # adds the 300-replicate null simulation (about 100 min)
+Rscript "2. Scripts/run_all.R" --from 05          # restart from a stage
 ```
 
-From this folder:
+The input data are not public. The pipeline needs the `1. Data/raw` and `1. Data/reference` folders described above.
 
-```sh
-python3 '2. Scripts/run.py'
-python3 '2. Scripts/run.py' --verify-only
-python3 '2. Scripts/run.py' --reports-only
-```
+## Pipeline
 
-Use `--import-exploration` only to refresh the source/evidence snapshots intentionally. It is not required on ordinary reruns after collection. The clean analytical stages read their own copies and frozen checkpoints. The original Exploration files are preserved. Raw data never change during analysis, missing deaths never become zero, and generated models never read `.RData` or `.Rhistory`.
+| Stage | Script | What it does |
+|---|---|---|
+| 00 setup | `config.R`, `dlnm_tools.R` | Paths, constants, figure style; two-stage DLNM toolkit (stage 1 fits, `mixmeta` pooling, curve tests) |
+| 01 data | `01_extract_workbooks.py` | Original Excel cells, corroborated date repairs |
+| | `02_census_populations.py` | Census county × age × race × sex populations (July-year mapping, infant bin, Bedford) |
+| | `03_assemble_panel.R` | 12 × 5,844 region-day calendar; duplicate dates set to missing; weather quality rules |
+| | `04_fetch_ghcn.py` | Public NOAA GHCN-Daily Tmin/Tmax for the 12 stations and nearby donors |
+| | `05_fill_weather.R` | Fills the 544 missing station-days (0.8%): same GHCN station, nearby station or other Virginia stations, chosen by masked validation |
+| | `06_county_crosswalk.R` | County → region crosswalk (Davis 2025 roster + Davis 2023 rules) and regional populations |
+| | `07_analysis_panel.R` | Region-day analysis panel |
+| 02 descriptives | `01_descriptives.R` | Deaths, rates, standardised mortality ratios, regional climate, trends, seasonality, raw association |
+| | `02_exposure_choice.R` | Quasi-AIC of Tmin vs Tmean vs Tmax vs afternoon temperature |
+| 03 temperature | `01_two_stage_dlnm.R` | Main model: region × margin DLNM on Tmin, multivariate meta-analysis, MMT bootstrap |
+| | `02_group_contrasts.R` | Whole-curve tests, ratios of RR, age composition (race), reference dependence, power |
+| | `03_sensitivity_grid.R` | 14 one-factor-at-a-time specifications |
+| 04 DTR | `01_two_stage_dtr.R` | DTR net of temperature level; seasonal, humidity, anomaly and lag variants; lag-response by sex |
+| 05 group differences | `01_published_design.R` | DeGuzman et al. (2026) statewide design for every margin, Tmin and DTR, with direct tests |
+| | `02_conditional_poisson.R` | Time-stratified conditional Poisson slopes and equality tests |
+| | `03_attributable_burden.R` | Cold/heat-attributable deaths per 100,000; age-standardised race comparison |
+| 06 days at risk | `01_days_at_risk.R` | Cao et al. (2026) own-curve vs overall-curve days and person-days at risk, with noise benchmark |
+| 07 methods supplement | `01_null_simulation.R`, `02_real_vs_null.R` | What the methods report when no group differs; calibrated power |
+| 08 figures | `01_main_figures.R` | Figures 1–8 |
 
-Requirements: Python 3.9+ standard library; R 4.6.1 was used locally, with dplyr, tidyr, splines, ggplot2, gridExtra, mgcv and MASS. Pandoc/Typst render reports; the runner discovers PATH versions or RStudio's bundled macOS tools. Rendering uses Georgia. Installed package versions are recorded in session logs. No package installation, upgrade or network access occurs during reproduction.
-
-Count-model caches use data and fitting-code hashes. A changed fitting dependency invalidates those caches. All stages produce logs under `3. Outputs/01_data_description/logs/pipeline`; requested optional model failures remain in the model registry. Unresolved negative-binomial alternating optimizers are stopped rather than reported as successful fits. Rebuilding plots, table images and PDFs can take several minutes.
-
-## Scientific scope
-
-The rewritten core independently reconstructs source cells and the corrected regional panel, fits distributed-lag count models, computes paired demographic contrasts, explores minima/hinges and classification rules, rebuilds Census population allocations, fits annual county gradients, and produces genuine penalized GAM interaction surfaces. Primary response checkpoints, all 12 historical demographic contrasts and the county poverty checkpoint are independently checked.
-
-Specialized historical regional architectures, Stage 3 latent-allocation models, large calibration experiments and morbidity branches are preserved with their reports and outputs. **They are not all rewritten or freshly refitted by this runner.** The result concordance makes that distinction explicit. Historical corrections and later undercoverage findings take precedence over an older report's stronger wording. The central numerical and interpretive checks do not certify missing source provenance, original catchments, statistical calibration or causal identification.
-
-The project supports conditional aggregate associations and methodological comparisons. Marginal race/sex contrasts are not age-standardized susceptibility. Annual county poverty gradients are not daily poverty-by-temperature interactions. Population-days are allocation scenarios under unverified catchments, not unique people harmed or attributable deaths. See the reports for precise limitations and equations.
-
-## Reading and editing scripts
-
-`00_shared/setup.R` declares common paths, groups, dates and graphical conventions. `distributed_lag.R` documents the basis, fitting and paired covariance mathematics. Numbered theme scripts follow the order in `run.py`, using explicit intermediate objects and explanatory English section comments inspired by the user's ENSAE script organization. No personal machine path is required for the analytical stages.
-
-Change analytical choices in the source scripts deliberately and rerun the full pipeline. Keep model IDs, footprints, controls, references, windows, calendars and uncertainty labels together when comparing CSV rows. Generated report text lives in `00_shared/build_reports.py`; edit that source instead of editing rendered HTML/PDF files that a rerun replaces.
-
-## Git and possible release
-
-The local `.gitignore` excludes raw/derived/reference data, extracted documents, generated evidence, models, logs and outputs. This supports a compact code-first commit without accidentally publishing supplied mortality extracts or gigabytes of historical snapshots. Source manifests and numerical references remain available locally for auditing. Generated HTML/PDF/PNG deliverables can be distributed separately after deciding which data and figure permissions apply.
-
-No license is imposed, and no Git commit, push or public release has been performed. Choose a license and document the input-data access procedure before a public code release. The pipeline can run offline with the documented input/reference bundle; a code-only checkout does not contain those excluded inputs.
+Earlier exploratory work (Codex pipeline, Claude exploration) is archived outside this folder, in `../Exploration/` and `../Claude/exploration/`.
