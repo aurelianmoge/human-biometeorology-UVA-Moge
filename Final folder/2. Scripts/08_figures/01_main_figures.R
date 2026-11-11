@@ -5,7 +5,7 @@
 #   Fig3 group MMTs with bootstrap intervals (+ null-simulation spread when available)
 #   Fig4 conditional Poisson cold / heat slopes by margin
 #   Fig5 cold-attributable deaths per 100,000 by margin
-#   Fig6 Cao comparison: person-days at risk, own vs all-cause curve
+#   Fig6 Cao comparison: person-days at risk, own vs all-deaths threshold (06_thresholds/01)
 #   Fig7 DTR: Female / Male ratio across variants and lag-response by sex
 #   Fig8 sensitivity grid: Female / Male RRR at P1 and P99
 # Output: 3. Outputs/figures/08_figures/
@@ -79,18 +79,18 @@ f5 <- ggplot(br, aes(cold_rate, g)) + geom_errorbarh(aes(xmin = pmax(cold_lo, .5
 save_fig(f5, STAGE, "Fig5_cold_burden", 8.5, 4.4)
 
 # ---- Fig6 ------------------------------------------------------------------------------------------------
-dr <- tab("06_days_at_risk", "days_at_risk")[exposure == "Tmin" & rule %in% c("MMT_heat", "MMT_cold", "RR1.05_cold")]
+dr <- tab("06_thresholds", "curve_threshold_population_at_risk")[(rule == "mmt") | (rule == "sig" & side == "cold")]
 cl <- function(x) pmin(pmax(1 + x / 100, .05), 20)
 dr[, `:=`(ratio = cl(delta_pct), lo = cl(delta_lo), hi = cl(delta_hi), nlo = cl(noise_lo), nhi = cl(noise_hi), g = factor(GROUP_LABEL[group], rev(GROUP_LABEL[setdiff(GROUPS, "All")])))]
-dr[, rl := factor(c(MMT_heat = "Heat: days warmer than the MMT", MMT_cold = "Cold: days colder than the MMT", RR1.05_cold = "Cold: days with RR ≥ 1.05")[rule],
-                  c("Heat: days warmer than the MMT", "Cold: days colder than the MMT", "Cold: days with RR ≥ 1.05"))]
+RLAB <- c("cold mmt" = "Cold: days colder than the group's MMT", "heat mmt" = "Heat: days warmer than the group's MMT", "cold sig" = "Cold: days beyond the significance threshold")
+dr[, rl := factor(RLAB[paste(side, rule)], RLAB)]
 f6 <- ggplot(dr, aes(ratio, g)) + geom_vline(xintercept = 1, colour = COL[["grey"]]) +
   geom_rect(aes(xmin = nlo, xmax = nhi, ymin = as.numeric(g) - .32, ymax = as.numeric(g) + .32), fill = COL[["lgrey"]]) +
-  geom_errorbarh(aes(xmin = lo, xmax = hi), height = .15, colour = COL[["blue"]], alpha = .7) + geom_point(aes(colour = p_vs_noise < .05), size = 2.4) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = .15, colour = COL[["blue"]], alpha = .7) + geom_point(aes(colour = ratio < nlo | ratio > nhi), size = 2.4) +
   geom_text(aes(label = sprintf("%+.0f%%", delta_pct)), vjust = -1, size = 2.8, colour = COL[["ink2"]]) + facet_wrap(~rl) +
   scale_colour_manual(values = c(`FALSE` = COL[["blue"]], `TRUE` = COL[["orange"]]), guide = "none") +
   scale_x_log10(breaks = c(.1, .5, 1, 2, 10), labels = function(x) sprintf("%+.0f%%", 100 * (x - 1))) +
-  labs(title = "Person-days at risk: own curve vs all-cause curve (Cao et al. 2026 comparison)",
+  labs(title = "Person-days at risk: own threshold vs all-deaths threshold (Cao et al. 2026 comparison)",
        subtitle = "Blue bar: 95% interval. Grey band: range produced by noise alone (identical true curves). Orange: outside it.", x = "Change in person-days at risk (log scale)", y = NULL)
 save_fig(f6, STAGE, "Fig6_days_at_risk", 11, 4.2)
 
