@@ -10,8 +10,11 @@
 #     plus the direct test of the RR ratio (groups = disjoint series, independent SEs).
 #   * geography: Black / White ratio implied by WHERE deaths occur, using region-specific
 #     (BLUP) all-cause curves weighted by each race's regional share of deaths.
+#   * exact replication of DeGuzman et al.'s exposure basis (their Methods): quadratic spline with
+#     two equally spaced knots, lag natural spline with two log-spaced knots, ns(time, 3 df/yr),
+#     RRs vs 5 C at -12, -10, 0, 22, 24 C, compared with their published Black / White RRs.
 # Output: tables/05_group_differences/published_design_RR.csv, published_design_contrasts.csv,
-#         geography_expectation.csv
+#         geography_expectation.csv, deguzman_exact_RR.csv, deguzman_exact_contrasts.csv
 # =============================================================================
 source("2. Scripts/00_setup/config.R"); source("2. Scripts/00_setup/dlnm_tools.R")
 STAGE <- "05_group_differences"
@@ -61,3 +64,21 @@ geo <- rbindlist(lapply(c(.01, .025, .10), function(q) { X <- pa$basis[pidx(q), 
   data.table(pct = 100 * q, RR_Black_geo = sum(v$vB * rr), RR_White_geo = sum(v$vW * rr), RRR_geo = sum(v$vB * rr) / sum(v$vW * rr)) }))
 write_tab(geo, STAGE, "geography_expectation")
 print(C[df_year == 3 & p_RRR < .1, .(exposure, window, point, pair, RR_a = round(RR_a, 3), RR_b = round(RR_b, 3), RRR = round(RRR, 3), p = signif(p_RRR, 2))])
+
+# ---- exact DeGuzman et al. (2026) exposure basis ---------------------------------------------------------------
+x <- st$Tmin_w; kn <- seq(min(x), max(x), length.out = 4)[2:3]
+cbE <- crossbasis(x, lag = MAX_LAG, argvar = list(fun = "bs", degree = 2, knots = kn), arglag = list(knots = logknots(MAX_LAG, 2)))
+TX <- c(-12, -10, 0, 22, 24)
+EX <- rbindlist(lapply(GROUPS, function(g) {
+  m <- glm(st[[g]] ~ cbE + ns(time, df = 3 * 16) + dow, data = st, family = quasipoisson, na.action = "na.exclude")
+  cp <- crosspred(cbE, m, at = TX, cen = 5)
+  data.table(group = g, temp = TX, est = unname(cp$allfit), se = unname(cp$allse)) }))[, `:=`(RR = exp(est), lo = exp(est - 1.96 * se), hi = exp(est + 1.96 * se))]
+pub <- data.table(group = c("Black", "White", "Black", "White"), temp = c(0, 0, -10, -10), published_RR = c(1.03, 1.04, 1.13, 1.02))
+EX <- merge(EX, pub, by = c("group", "temp"), all.x = TRUE)
+write_tab(EX, STAGE, "deguzman_exact_RR")
+EC <- rbindlist(lapply(PAIRS, function(pr) { m <- merge(EX[group == pr[1]], EX[group == pr[2]], by = "temp", suffixes = c("_a", "_b"))
+  m[, `:=`(d = est_a - est_b, sd = sqrt(se_a^2 + se_b^2))]
+  m[, .(pair = paste(pr, collapse = "/"), temp, RR_a, lo_a, hi_a, RR_b, lo_b, hi_b, excess_ratio = (RR_a - 1) / (RR_b - 1),
+        RRR = exp(d), RRR_lo = exp(d - 1.96 * sd), RRR_hi = exp(d + 1.96 * sd), p_RRR = 2 * pnorm(-abs(d / sd)))] }))
+write_tab(EC, STAGE, "deguzman_exact_contrasts")
+print(EX[group %in% c("Black", "White") & temp %in% c(-10, 0), .(group, temp, RR = round(RR, 3), lo = round(lo, 3), hi = round(hi, 3), published_RR)])
